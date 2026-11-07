@@ -1,0 +1,20 @@
+0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+1 info using npm@11.21.2
+2 info using node@v24.22.2
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/antigravity/.npmrc
+5 silly config load:file:/usr/local/etc/npmrc
+6 verbose title npm list pdfjs-dist
+7 verbose argv "list" "pdfjs-dist"
+8 verbose logfile logs-max:10 dir:/home/antigravity/.npm/_logs/2026-11-07T20_31_56_488Z-
+9 verbose logfile /home/antigravity/.npm/_logs/2026-11-07T20_31_56_488Z-debug-0.log
+10 silly logfile start cleaning logs, removing 1 files
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:2348810240 maxSize:587202560 maxEntrySize:293601280
+13 verbose shrinkwrap failed to load node_modules/.package-lock.json out of date, updated: node_modules
+14 verbose cwd /home/antigravity
+15 verbose os Linux 6.12.105+
+16 verbose node v24.22.2
+17 verbose npm  v11.21.2
+18 verbose exit 1
+19 verbose code 1

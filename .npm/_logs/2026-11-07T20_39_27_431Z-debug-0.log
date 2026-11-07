@@ -1,0 +1,18 @@
+0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+1 info using npm@11.21.2
+2 info using node@v24.22.2
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/antigravity/.npmrc
+5 silly config load:file:/usr/local/etc/npmrc
+6 verbose title npm run test
+7 verbose argv "run" "test"
+8 verbose logfile logs-max:10 dir:/home/antigravity/.npm/_logs/2026-11-07T20_39_27_431Z-
+9 verbose logfile /home/antigravity/.npm/_logs/2026-11-07T20_39_27_431Z-debug-0.log
+10 silly logfile start cleaning logs, removing 1 files
+11 silly logfile done cleaning log files
+12 verbose cwd /home/antigravity
+13 verbose os Linux 6.12.105+
+14 verbose node v24.22.2
+15 verbose npm  v11.21.2
+16 verbose exit 0
+17 info ok
