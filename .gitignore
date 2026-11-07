@@ -1,5 +1,6 @@
-# Dependências
+# Dependências e Cache
 node_modules/
+.npm/
 .pnp/
 .pnp.js
 
