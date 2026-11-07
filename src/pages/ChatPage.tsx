@@ -1,19 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Sparkles,
   Send,
-  Key,
-  Shield,
   Bot,
   User,
   Info,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { db } from '../db/db';
-import { GeminiProvider } from '../lib/ai/geminiProvider';
 import type { ChatMessage } from '../lib/ai/provider';
 import { processarChatLocal } from '../lib/ai/localChatEngine';
 import { ChatCard } from '../components/chat/ChatCard';
@@ -28,23 +22,18 @@ const PERGUNTAS_SUGERIDAS = [
 ];
 
 export const ChatPage: React.FC = () => {
-  const settings = useLiveQuery(() => db.settings.get('global'));
-  const apiKey = settings?.geminiApiKey || '';
-
   const [mensagens, setMensagens] = useState<ChatMessage[]>([
     {
       id: 'msg_welcome',
       role: 'assistant',
       content:
-        'Olá! Sou seu assistente financeiro do Sobra. Converso diretamente com os extratos e transações que você importou, sem enviar dados para a nuvem externa.\n\nVocê pode me fazer perguntas do dia a dia sobre o seu dinheiro, como simulações de compras parceladas, quanto gastou com delivery, como sua reserva de emergência se comporta ou onde otimizar seus gastos.\n\nTodo cálculo é estritamente determinístico — sem alucinações matemáticas. O que gostaria de analisar hoje?',
+        'Olá! Sou seu assistente financeiro do Sobra. Converso diretamente com os extratos e transações que você importou, com total privacidade no seu navegador.\n\nVocê pode me fazer perguntas do dia a dia sobre o seu dinheiro, como simulações de compras parceladas, quanto gastou com delivery, como sua reserva de emergência se comporta ou onde otimizar seus gastos.\n\nTodo cálculo é estritamente determinístico — sem alucinações matemáticas. O que gostaria de analisar hoje?',
       timestamp: new Date().toISOString(),
     },
   ]);
 
   const [inputTexto, setInputTexto] = useState('');
   const [carregando, setCarregando] = useState(false);
-  const [chaveModal, setChaveModal] = useState(false);
-  const [chaveInput, setChaveInput] = useState('');
   const [comoCalculeiAberto, setComoCalculeiAberto] = useState<Record<string, boolean>>({});
 
   const fimMensagensRef = useRef<HTMLDivElement>(null);
@@ -52,14 +41,6 @@ export const ChatPage: React.FC = () => {
   useEffect(() => {
     fimMensagensRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensagens, carregando]);
-
-  const salvarChave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chaveInput.trim()) return;
-    await db.settings.update('global', { geminiApiKey: chaveInput.trim() });
-    setChaveModal(false);
-    setChaveInput('');
-  };
 
   const enviarMensagem = async (texto: string) => {
     const msgLimpa = texto.trim();
@@ -78,20 +59,20 @@ export const ChatPage: React.FC = () => {
     setCarregando(true);
 
     try {
-      if (apiKey) {
-        // Se o usuário conectou chave do Gemini, usa provedor com Function Calling
-        const provider = new GeminiProvider(apiKey);
-        const respostaIA = await provider.conversar(historicoAtualizado);
-        setMensagens((prev) => [...prev, respostaIA]);
-      } else {
-        // Motor local avançado do Sobra (analisa extratos locais com vocabulário rico)
-        const respostaLocal = await processarChatLocal(msgLimpa);
-        setMensagens((prev) => [...prev, respostaLocal]);
-      }
+      // Motor local avançado do Sobra (analisa extratos locais com vocabulário rico e determinístico)
+      const respostaLocal = await processarChatLocal(msgLimpa);
+      setMensagens((prev) => [...prev, respostaLocal]);
     } catch (e: any) {
-      console.warn('Erro ao consultar provedor externo, ativando motor local determinístico:', e);
-      const fallbackLocal = await processarChatLocal(msgLimpa);
-      setMensagens((prev) => [...prev, fallbackLocal]);
+      console.warn('Erro ao processar consulta local:', e);
+      setMensagens((prev) => [
+        ...prev,
+        {
+          id: `msg_err_${Date.now()}`,
+          role: 'assistant',
+          content: 'Tive uma oscilação momentânea ao analisar suas transações locais. Por favor, tente reformular a pergunta.',
+          timestamp: new Date().toISOString(),
+        },
+      ]);
     } finally {
       setCarregando(false);
     }
@@ -102,50 +83,28 @@ export const ChatPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-9.5rem)] md:h-[calc(100vh-8.5rem)] max-w-4xl mx-auto space-y-3">
-      {/* Cabeçalho do Chat */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border-light dark:border-border-dark pb-3">
+    <div className="flex flex-col h-[calc(100vh-9rem)] md:h-[calc(100vh-7.5rem)] max-w-4xl mx-auto space-y-3">
+      {/* Cabeçalho Limpo do Chat */}
+      <div className="flex items-center justify-between gap-3 border-b border-border-light dark:border-border-dark pb-3">
         <div className="flex items-center gap-2.5">
           <div className="p-2 rounded-xl bg-primary/10 text-primary dark:bg-primary/20">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-content-main-light dark:text-content-main-dark flex items-center gap-2">
-              <span>Assistente Financeiro Sobra</span>
-              <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-emerald-500 text-white shadow-sm">
-                Motor Local 100% Privado
-              </span>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-content-main-light dark:text-content-main-dark">
+              Assistente Sobra
             </h1>
-            <p className="text-xs text-content-secondary-light dark:text-content-secondary-dark">
-              Análise inteligente das suas transações locais com cálculos matemáticos exatos.
+            <p className="text-xs text-content-secondary-light dark:text-content-secondary-dark flex items-center gap-1.5 mt-0.5">
+              <span>Análise inteligente das suas movimentações financeiras.</span>
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          {!apiKey ? (
-            <button
-              onClick={() => setChaveModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark hover:border-primary/50 text-content-main-light dark:text-content-main-dark text-xs font-semibold shadow-sm transition-all"
-            >
-              <Key className="w-3.5 h-3.5 text-accent" />
-              <span>Chave Gemini (Opcional)</span>
-            </button>
-          ) : (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-income dark:bg-emerald-950/60 text-[11px] font-semibold">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Gemini Conectado
-            </span>
-          )}
+        {/* Indicador Minimalista e Discreto de Privacidade */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/50 text-[11px] font-medium text-income dark:text-emerald-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span>Local & Privado</span>
         </div>
-      </div>
-
-      {/* Banner de Privacidade Local */}
-      <div className="p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/40 text-[11px] text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
-        <Shield className="w-4 h-4 flex-shrink-0 text-income" />
-        <span>
-          <strong>Privacidade garantida:</strong> O assistente opera diretamente sobre seus dados salvos no navegador. Nenhuma transação bancária sai do seu dispositivo.
-        </span>
       </div>
 
       {/* Área de Mensagens com Scroll */}
@@ -264,59 +223,6 @@ export const ChatPage: React.FC = () => {
           <Send className="w-5 h-5" />
         </button>
       </form>
-
-      {/* Modal Chave Gemini */}
-      {chaveModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
-            <h3 className="text-base font-bold text-content-main-light dark:text-content-main-dark flex items-center gap-2">
-              <Key className="w-5 h-5 text-accent" />
-              Chave da API do Google Gemini (Opcional)
-            </h3>
-
-            <p className="text-xs text-content-secondary-light leading-relaxed">
-              O Sobra já funciona de forma completa e offline com o <strong>Motor de Inteligência Local</strong>. Conectar o Gemini permite conversas livres adicionais usando sua própria chave gratuita.
-            </p>
-
-            <form onSubmit={salvarChave} className="space-y-3">
-              <div>
-                <input
-                  type="password"
-                  value={chaveInput}
-                  onChange={(e) => setChaveInput(e.target.value)}
-                  placeholder="AIzaSy..."
-                  required
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark text-xs text-content-main-light dark:text-content-main-dark outline-none focus:ring-2 focus:ring-accent"
-                />
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[11px] text-primary hover:underline font-semibold block mt-1.5"
-                >
-                  Obter chave gratuita no Google AI Studio &rarr;
-                </a>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setChaveModal(false)}
-                  className="px-3.5 py-2 rounded-xl border border-border-light dark:border-border-dark text-xs font-semibold text-content-secondary-light"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm"
-                >
-                  Salvar Chave
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

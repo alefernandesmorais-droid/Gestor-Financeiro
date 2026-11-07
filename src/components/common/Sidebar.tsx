@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { ThemeToggle } from './ThemeToggle';
+import { SobraLogo } from './SobraLogo';
 
 const navItems = [
   { path: '/', label: 'Painel', icon: LayoutDashboard },
@@ -23,7 +24,7 @@ const navItems = [
   { path: '/simulador', label: 'Posso comprar?', icon: Calculator },
   { path: '/reserva', label: 'Reserva', icon: ShieldCheck },
   { path: '/metas', label: 'Metas', icon: Target },
-  { path: '/chat', label: 'Chat com IA', icon: Sparkles, badge: 'IA' },
+  { path: '/chat', label: 'Assistente Sobra', icon: Sparkles },
   { path: '/configuracoes', label: 'Configurações', icon: Settings },
 ];
 
@@ -32,34 +33,27 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className={`hidden md:flex flex-col border-r border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark transition-all duration-200 z-30 select-none ${
+      className={`hidden md:flex flex-col border-r border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark transition-all duration-200 z-30 select-none relative ${
         sidebarAberta ? 'w-64' : 'w-20'
       }`}
     >
+      {/* Botão de Toggle Flutuante na Borda (estilo Notion/Linear) */}
+      <button
+        onClick={() => setSidebarAberta(!sidebarAberta)}
+        className="absolute -right-3 top-5 z-40 w-6 h-6 rounded-full bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark shadow-md flex items-center justify-center text-content-secondary-light dark:text-content-secondary-dark hover:text-primary hover:border-primary/50 hover:scale-110 active:scale-95 transition-all"
+        title={sidebarAberta ? 'Recolher menu lateral' : 'Expandir menu lateral'}
+        aria-label={sidebarAberta ? 'Recolher menu lateral' : 'Expandir menu lateral'}
+      >
+        {sidebarAberta ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+      </button>
+
       {/* Topo / Logo */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-border-light dark:border-border-dark">
-        <div className="flex items-center gap-3 overflow-hidden">
-          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 text-white font-bold text-xl shadow-sm">
-            S
-          </div>
-          {sidebarAberta && (
-            <div className="flex flex-col">
-              <span className="font-bold text-lg leading-tight tracking-tight text-content-main-light dark:text-content-main-dark">
-                Sobra
-              </span>
-              <span className="text-[11px] text-content-secondary-light dark:text-content-secondary-dark">
-                Controle financeiro pessoal
-              </span>
-            </div>
-          )}
-        </div>
-        <button
-          onClick={() => setSidebarAberta(!sidebarAberta)}
-          className="p-1.5 rounded-lg text-content-secondary-light dark:text-content-secondary-dark hover:bg-black/5 dark:hover:bg-white/10"
-          title={sidebarAberta ? 'Recolher menu' : 'Expandir menu'}
-        >
-          {sidebarAberta ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        </button>
+      <div
+        className={`h-16 flex items-center border-b border-border-light dark:border-border-dark transition-all ${
+          sidebarAberta ? 'px-4 justify-start' : 'justify-center px-0'
+        }`}
+      >
+        <SobraLogo size="md" showText={sidebarAberta} />
       </div>
 
       {/* Links de navegação */}
@@ -71,9 +65,11 @@ export const Sidebar: React.FC = () => {
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                `flex items-center gap-3 rounded-xl text-sm font-medium transition-all ${
+                  sidebarAberta ? 'px-3 py-2.5' : 'justify-center py-2.5 px-0'
+                } ${
                   isActive
-                    ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-light font-semibold'
+                    ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-light font-semibold shadow-xs'
                     : 'text-content-secondary-light dark:text-content-secondary-dark hover:bg-black/5 dark:hover:bg-white/5 hover:text-content-main-light dark:hover:text-content-main-dark'
                 }`
               }
@@ -83,21 +79,20 @@ export const Sidebar: React.FC = () => {
               {sidebarAberta && (
                 <span className="flex-1 truncate">{item.label}</span>
               )}
-              {sidebarAberta && item.badge && (
-                <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full bg-accent text-white">
-                  {item.badge}
-                </span>
-              )}
             </NavLink>
           );
         })}
       </nav>
 
       {/* Rodapé da Sidebar */}
-      <div className="p-3 border-t border-border-light dark:border-border-dark flex items-center justify-between">
+      <div
+        className={`p-3 border-t border-border-light dark:border-border-dark flex items-center ${
+          sidebarAberta ? 'justify-between' : 'justify-center flex-col gap-2'
+        }`}
+      >
         <NavLink
           to="/onboarding"
-          className="flex items-center gap-2 p-2 rounded-xl text-xs text-content-secondary-light dark:text-content-secondary-dark hover:bg-black/5 dark:hover:bg-white/10"
+          className="flex items-center gap-2 p-2 rounded-xl text-xs text-content-secondary-light dark:text-content-secondary-dark hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
           title="Guia dos Bancos e Boas-vindas"
         >
           <HelpCircle className="w-4 h-4 flex-shrink-0" />

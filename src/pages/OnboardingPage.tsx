@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Shield, UploadCloud, ArrowRight, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { SobraLogo } from '../components/common/SobraLogo';
 
 const guiasBancos = [
   {
@@ -45,8 +46,8 @@ export const OnboardingPage: React.FC = () => {
     <div className="max-w-2xl mx-auto space-y-8 py-4">
       {/* Cabeçalho */}
       <div className="text-center space-y-2">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary text-white text-2xl font-black mb-2 shadow-sm">
-          S
+        <div className="flex justify-center mb-2">
+          <SobraLogo size="xl" />
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-content-main-light dark:text-content-main-dark">
           Bem-vindo ao Sobra

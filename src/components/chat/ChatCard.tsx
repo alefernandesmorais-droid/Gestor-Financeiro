@@ -78,13 +78,13 @@ export const ChatCard: React.FC<ChatCardProps> = ({ data }) => {
           </div>
         </div>
 
-        {/* Badge de Veredito / Status */}
+        {/* Badge de Veredito / Status Proporcional */}
         {data.semaforo && (
           <div
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border self-start sm:self-auto ${getSemaforoClasses()}`}
+            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border self-start sm:self-auto ${getSemaforoClasses()}`}
           >
             {getIconeSemaforo()}
-            <span className="uppercase tracking-wider">
+            <span>
               {data.semaforo === 'verde'
                 ? 'Aprovado'
                 : data.semaforo === 'amarelo'

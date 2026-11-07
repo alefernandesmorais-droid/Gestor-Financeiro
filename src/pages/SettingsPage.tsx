@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Settings,
-  Key,
   Shield,
   Database,
   Trash2,
@@ -10,7 +9,6 @@ import {
   Download,
   Upload,
   AlertTriangle,
-  Sparkles,
   Tag,
   Moon,
   Sun,
@@ -25,7 +23,6 @@ export const SettingsPage: React.FC = () => {
   const { theme, toggleTheme } = useAppStore();
   const fileBackupRef = useRef<HTMLInputElement>(null);
 
-  const [apiKey, setApiKey] = useState('');
   const [salvo, setSalvo] = useState(false);
   const [metaMeses, setMetaMeses] = useState(6);
   const [mensagemStatus, setMensagemStatus] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
@@ -42,9 +39,8 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     async function carregarConfig() {
       const config = await db.settings.get('global');
-      if (config) {
-        if (config.geminiApiKey) setApiKey(config.geminiApiKey);
-        if (config.metaReservaMeses) setMetaMeses(config.metaReservaMeses);
+      if (config && config.metaReservaMeses) {
+        setMetaMeses(config.metaReservaMeses);
       }
     }
     carregarConfig();
@@ -53,7 +49,6 @@ export const SettingsPage: React.FC = () => {
   const salvarConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     await db.settings.update('global', {
-      geminiApiKey: apiKey.trim(),
       metaReservaMeses: metaMeses,
     });
     setSalvo(true);
@@ -106,7 +101,6 @@ export const SettingsPage: React.FC = () => {
 
   const confirmarApagarTudo = async () => {
     await db.limparTodosDados();
-    setApiKey('');
     setModalConfirmarExclusao(false);
     alert('Todos os dados locais foram apagados com sucesso.');
     window.location.reload();
@@ -143,21 +137,18 @@ export const SettingsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Card da Chave Gemini (BYOK) */}
+      {/* Card de Preferências de Reserva */}
       <div className="p-6 rounded-2xl bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark shadow-sm space-y-4">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-accent/10 text-accent">
-            <Key className="w-5 h-5" />
+          <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
+            <Shield className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-content-main-light dark:text-content-main-dark flex items-center gap-2">
-              <span>Chave da API do Google Gemini (BYOK)</span>
-              <span className="text-[10px] bg-accent/10 text-accent font-semibold px-2 py-0.5 rounded-full uppercase">
-                Gratuita
-              </span>
+            <h2 className="text-base font-bold text-content-main-light dark:text-content-main-dark">
+              Parâmetros de Proteção Financeira
             </h2>
             <p className="text-xs text-content-secondary-light dark:text-content-secondary-dark">
-              A chave fica gravada <strong>apenas no navegador do seu dispositivo</strong> (IndexedDB). Nunca é enviada a nenhum servidor nosso.
+              Defina as premissas para o cálculo do seu colchão de segurança e metas.
             </p>
           </div>
         </div>
@@ -165,58 +156,37 @@ export const SettingsPage: React.FC = () => {
         <form onSubmit={salvarConfig} className="space-y-4 pt-1">
           <div>
             <label className="block text-xs font-semibold text-content-secondary-light mb-1">
-              Chave da API do Gemini (AI Studio)
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="AIzaSy..."
-              className="w-full px-3.5 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark text-content-main-light dark:text-content-main-dark text-xs sm:text-sm font-mono outline-none focus:ring-2 focus:ring-primary"
-            />
-            <div className="flex flex-wrap items-center justify-between gap-2 mt-1.5 text-[11px]">
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary hover:underline font-semibold"
-              >
-                Como obter chave gratuita no Google AI Studio &rarr;
-              </a>
-              <span className="text-content-secondary-light">
-                Modelo em uso: <strong>gemini-2.5-flash</strong>
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-content-secondary-light mb-1">
               Meta de Reserva de Emergência (em meses de gastos essenciais)
             </label>
-            <input
-              type="number"
-              min="1"
-              max="24"
-              value={metaMeses}
-              onChange={(e) => setMetaMeses(Number(e.target.value))}
-              className="w-32 px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark text-xs font-bold text-content-main-light dark:text-content-main-dark outline-none focus:ring-2 focus:ring-primary tabular-nums"
-            />
-            <span className="text-[10px] text-content-secondary-light block mt-1">
-              Padrão recomendado: 6 meses de despesas fixas/essenciais.
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min="1"
+                max="24"
+                value={metaMeses}
+                onChange={(e) => setMetaMeses(Number(e.target.value))}
+                className="w-28 px-3.5 py-2 rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark text-xs sm:text-sm font-bold text-content-main-light dark:text-content-main-dark outline-none focus:ring-2 focus:ring-primary tabular-nums"
+              />
+              <span className="text-xs text-content-secondary-light">
+                meses de cobertura recomendados
+              </span>
+            </div>
+            <span className="text-[11px] text-content-secondary-light block mt-1.5">
+              💡 Padrão recomendado por planejadores financeiros: 6 meses para CLT ou 12 meses para autônomos.
             </span>
           </div>
 
           <div className="flex items-center gap-3 pt-1">
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all"
+              className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all active:scale-95"
             >
-              Salvar Preferências
+              Salvar Parâmetros
             </button>
             {salvo && (
-              <span className="inline-flex items-center gap-1 text-xs text-income font-medium">
+              <span className="inline-flex items-center gap-1 text-xs text-income font-medium animate-in fade-in duration-150">
                 <CheckCircle2 className="w-4 h-4" />
-                Configurações salvas no seu aparelho!
+                Parâmetros salvos com sucesso!
               </span>
             )}
           </div>
