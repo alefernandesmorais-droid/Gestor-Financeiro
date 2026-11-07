@@ -12,10 +12,13 @@ import {
   Filter,
   CreditCard,
   Building,
+  KeyRound,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { parseOFX } from '../lib/parsers/ofxParser';
-import { parseCSV, type ResultadoParseCSV } from '../lib/parsers/csvParser';
+import { parseCSV } from '../lib/parsers/csvParser';
 import { parsePDF } from '../lib/parsers/pdfParser';
+import { parseExcel, parseCSVInteligente, type TransacaoPlanilha } from '../lib/parsers/spreadsheetParser';
 import { filtrarDuplicatas, normalizarDescricao } from '../lib/calculations/dedup';
 import { formatCurrency, formatDate } from '../lib/formatters';
 import { db } from '../db/db';
@@ -50,59 +53,99 @@ export const ImportPage: React.FC = () => {
   const [sucessoMensagem, setSucessoMensagem] = useState<string | null>(null);
   const [erroMensagem, setErroMensagem] = useState<string | null>(null);
 
+  // Estado para PDFs protegidos por senha
+  const [modalSenhaAberta, setModalSenhaAberta] = useState(false);
+  const [arquivoPendenteSenha, setArquivoPendenteSenha] = useState<{
+    arquivo: File;
+    buffer: ArrayBuffer;
+  } | null>(null);
+  const [senhaInput, setSenhaInput] = useState('');
+  const [erroSenha, setErroSenha] = useState<string | null>(null);
+
   const categorias = useLiveQuery(() => db.categories.toArray()) || [];
   const contasExistentes = useLiveQuery(() => db.accounts.toArray()) || [];
-
-  // Mapeia regras existentes para auto-categorizar na importação
   const regras = useLiveQuery(() => db.rules.toArray()) || [];
 
-  const aplicarRegras = (descLimpa: string, cats: Category[]): number | undefined => {
-    // 1. Regras do usuário cadastradas no banco
+  /**
+   * Mapeia categoria sugerida da planilha ou regras conhecidas
+   */
+  const aplicarRegrasECategorias = (
+    descLimpa: string,
+    categoriaSugerida?: string
+  ): number | undefined => {
+    // 1. Se a planilha já trouxe uma categoria explícita (ex: "Moradia", "Educação", "Alimentação")
+    if (categoriaSugerida) {
+      const catLimpaNorm = normalizarDescricao(categoriaSugerida);
+      const matchDireto = categorias.find((c) => {
+        const cNomeNorm = normalizarDescricao(c.nome);
+        return cNomeNorm.includes(catLimpaNorm) || catLimpaNorm.includes(cNomeNorm);
+      });
+      if (matchDireto?.id) return matchDireto.id;
+
+      // Mapeamentos específicos comuns em planilhas brasileiras
+      if (catLimpaNorm.includes('cartao') || catLimpaNorm.includes('credito')) {
+        const catDividas = categorias.find((c) => normalizarDescricao(c.nome).includes('divida') || normalizarDescricao(c.nome).includes('cartao'));
+        if (catDividas?.id) return catDividas.id;
+      }
+      if (catLimpaNorm.includes('investimento') || catLimpaNorm.includes('poupanca')) {
+        const catInv = categorias.find((c) => normalizarDescricao(c.nome).includes('investimento'));
+        if (catInv?.id) return catInv.id;
+      }
+      if (catLimpaNorm.includes('lazer') || catLimpaNorm.includes('compra')) {
+        const catLazer = categorias.find((c) => normalizarDescricao(c.nome).includes('lazer') || normalizarDescricao(c.nome).includes('compra'));
+        if (catLazer?.id) return catLazer.id;
+      }
+    }
+
+    // 2. Regras cadastradas pelo usuário
     for (const regra of regras) {
       if (descLimpa.includes(normalizarDescricao(regra.padrao))) {
         return regra.categoriaId;
       }
     }
 
-    // 2. Heurísticas comuns de estabelecimentos brasileiros
+    // 3. Heurísticas comuns de estabelecimentos brasileiros
     const dicionario: Array<{ termo: string; categoriaNome: string }> = [
-      { termo: 'IFOOD', categoriaNome: 'Alimentação fora' },
-      { termo: 'UBER', categoriaNome: 'Transporte' },
-      { termo: '99APP', categoriaNome: 'Transporte' },
-      { termo: '99', categoriaNome: 'Transporte' },
-      { termo: 'NETFLIX', categoriaNome: 'Assinaturas' },
-      { termo: 'SPOTIFY', categoriaNome: 'Assinaturas' },
-      { termo: 'SMART FIT', categoriaNome: 'Saúde' },
-      { termo: 'FARMACIA', categoriaNome: 'Saúde' },
-      { termo: 'DROGASIL', categoriaNome: 'Saúde' },
-      { termo: 'DROGA RAIA', categoriaNome: 'Saúde' },
-      { termo: 'PAGUE MENOS', categoriaNome: 'Saúde' },
-      { termo: 'CARREFOUR', categoriaNome: 'Mercado' },
-      { termo: 'PAO DE ACUCAR', categoriaNome: 'Mercado' },
-      { termo: 'ASSAI', categoriaNome: 'Mercado' },
-      { termo: 'ATACADAO', categoriaNome: 'Mercado' },
-      { termo: 'SUPERMERCADO', categoriaNome: 'Mercado' },
-      { termo: 'MERCADO LIVRE', categoriaNome: 'Compras' },
-      { termo: 'AMAZON', categoriaNome: 'Compras' },
-      { termo: 'SHOPEE', categoriaNome: 'Compras' },
-      { termo: 'SHEIN', categoriaNome: 'Compras' },
+      { termo: 'RENT', categoriaNome: 'Moradia' },
       { termo: 'ALUGUEL', categoriaNome: 'Moradia' },
       { termo: 'CONDOMINIO', categoriaNome: 'Moradia' },
+      { termo: 'LUZ', categoriaNome: 'Moradia' },
       { termo: 'ENEL', categoriaNome: 'Moradia' },
       { termo: 'CPFL', categoriaNome: 'Moradia' },
       { termo: 'LIGHT', categoriaNome: 'Moradia' },
       { termo: 'SABESP', categoriaNome: 'Moradia' },
+      { termo: 'TELEFONE', categoriaNome: 'Moradia' },
+      { termo: 'INTERNET', categoriaNome: 'Moradia' },
       { termo: 'CLARO', categoriaNome: 'Moradia' },
       { termo: 'VIVO', categoriaNome: 'Moradia' },
       { termo: 'TIM', categoriaNome: 'Moradia' },
+      { termo: 'FIES', categoriaNome: 'Educação' },
+      { termo: 'MBA', categoriaNome: 'Educação' },
+      { termo: 'FACULDADE', categoriaNome: 'Educação' },
+      { termo: 'CURSO', categoriaNome: 'Educação' },
+      { termo: 'IFOOD', categoriaNome: 'Alimentação fora' },
+      { termo: 'MERCADO', categoriaNome: 'Mercado' },
+      { termo: 'SUPERMERCADO', categoriaNome: 'Mercado' },
+      { termo: 'CARREFOUR', categoriaNome: 'Mercado' },
+      { termo: 'PAO DE ACUCAR', categoriaNome: 'Mercado' },
+      { termo: 'FARMACIA', categoriaNome: 'Saúde' },
+      { termo: 'MEDICAMENTO', categoriaNome: 'Saúde' },
+      { termo: 'DROGASIL', categoriaNome: 'Saúde' },
+      { termo: 'DROGA RAIA', categoriaNome: 'Saúde' },
+      { termo: 'UBER', categoriaNome: 'Transporte' },
+      { termo: '99APP', categoriaNome: 'Transporte' },
+      { termo: 'NETFLIX', categoriaNome: 'Assinaturas' },
+      { termo: 'SPOTIFY', categoriaNome: 'Assinaturas' },
       { termo: 'SALARIO', categoriaNome: 'Renda (salário)' },
-      { termo: 'PAGAMENTO SALARIO', categoriaNome: 'Renda (salário)' },
-      { termo: 'TED RECEBIDA', categoriaNome: 'Renda extra' },
+      { termo: 'POUPANCA', categoriaNome: 'Investimentos' },
+      { termo: 'INVESTIMENTO', categoriaNome: 'Investimentos' },
+      { termo: 'PETLOVE', categoriaNome: 'Outros' },
+      { termo: 'PET', categoriaNome: 'Outros' },
     ];
 
     for (const item of dicionario) {
       if (descLimpa.includes(item.termo)) {
-        const cat = cats.find((c) => c.nome.toLowerCase() === item.categoriaNome.toLowerCase());
+        const cat = categorias.find((c) => c.nome.toLowerCase() === item.categoriaNome.toLowerCase());
         if (cat?.id) return cat.id;
       }
     }
@@ -118,25 +161,60 @@ export const ImportPage: React.FC = () => {
     setSucessoMensagem(null);
 
     try {
-      // Carrega hashes existentes do banco local
       const todasTransacoes = await db.transactions.toArray();
       const hashesExistentes = new Set(todasTransacoes.map((t) => t.hashDedup));
 
-      const novosItensParaRevisao: ItemRevisao[] = [];
-      let totalDuplicadasDetectadas = 0;
+      const novosItensParaRevisao: ItemRevisao[] = [...itensRevisao];
+      let totalDuplicadasDetectadas = totalDuplicados;
 
       for (let i = 0; i < arquivos.length; i++) {
         const arquivo = arquivos[i];
         const nomeLower = arquivo.name.toLowerCase();
 
-        if (nomeLower.endsWith('.ofx')) {
+        // 1. Arquivos Excel (.xlsx, .xls)
+        if (nomeLower.endsWith('.xlsx') || nomeLower.endsWith('.xls')) {
+          const buffer = await arquivo.arrayBuffer();
+          const res = await parseExcel(buffer, arquivo.name);
+
+          if (!res.sucesso) {
+            setErroMensagem(res.mensagemAviso || `Não foi possível extrair dados de ${arquivo.name}.`);
+            continue;
+          }
+
+          const { unicos, duplicados } = filtrarDuplicatas(res.transacoes, hashesExistentes);
+          totalDuplicadasDetectadas += duplicados.length;
+
+          unicos.forEach((t, idx) => {
+            const catSugerida = aplicarRegrasECategorias(t.descricaoLimpa, t.categoriaSugerida);
+            novosItensParaRevisao.push({
+              tempId: `excel_${i}_${idx}_${t.hashDedup}`,
+              data: t.data,
+              descricao: t.descricao,
+              descricaoLimpa: t.descricaoLimpa,
+              valor: t.valor,
+              tipo: t.tipo,
+              categoriaId: catSugerida,
+              hashDedup: t.hashDedup,
+              origemArquivo: t.abaOrigem ? `${arquivo.name} [${t.abaOrigem}]` : arquivo.name,
+              banco: 'Planilha Pessoal',
+              tipoConta: 'conta',
+              ignorado: t.ignorado ?? false,
+              motivoIgnorado: t.motivoIgnorado,
+              criarRegra: false,
+            });
+          });
+
+          setSucessoMensagem(`Planilha Excel lida com sucesso! ${res.transacoes.length} transações identificadas em ${res.abasProcessadas.length} abas.`);
+        }
+        // 2. Arquivos OFX bancários
+        else if (nomeLower.endsWith('.ofx')) {
           const texto = await arquivo.text();
           const res = parseOFX(texto);
           const { unicos, duplicados } = filtrarDuplicatas(res.transacoes, hashesExistentes);
           totalDuplicadasDetectadas += duplicados.length;
 
           unicos.forEach((t, idx) => {
-            const catSugerida = aplicarRegras(t.descricaoLimpa, categorias);
+            const catSugerida = aplicarRegrasECategorias(t.descricaoLimpa);
             novosItensParaRevisao.push({
               tempId: `ofx_${i}_${idx}_${t.hashDedup}`,
               data: t.data,
@@ -154,14 +232,30 @@ export const ImportPage: React.FC = () => {
               criarRegra: false,
             });
           });
-        } else if (nomeLower.endsWith('.csv')) {
+        }
+        // 3. Arquivos CSV (de bancos ou planilhas)
+        else if (nomeLower.endsWith('.csv')) {
           const texto = await arquivo.text();
-          const res = await parseCSV(texto, arquivo.name);
-          const { unicos, duplicados } = filtrarDuplicatas(res.transacoes, hashesExistentes);
+          // Tenta parser inteligente que suporta cabeçalhos em qualquer linha
+          const resInteligente = await parseCSVInteligente(texto, arquivo.name);
+
+          let listaTransacoes = resInteligente.transacoes;
+          // Se o inteligente não encontrou, tenta o parser convencional de bancos
+          if (listaTransacoes.length === 0) {
+            const resConvencional = await parseCSV(texto, arquivo.name);
+            listaTransacoes = resConvencional.transacoes;
+          }
+
+          if (listaTransacoes.length === 0) {
+            setErroMensagem(`Não conseguimos ler transações no arquivo "${arquivo.name}". Verifique se ele contém colunas de descrição e valor.`);
+            continue;
+          }
+
+          const { unicos, duplicados } = filtrarDuplicatas(listaTransacoes, hashesExistentes);
           totalDuplicadasDetectadas += duplicados.length;
 
-          unicos.forEach((t, idx) => {
-            const catSugerida = aplicarRegras(t.descricaoLimpa, categorias);
+          unicos.forEach((t: any, idx) => {
+            const catSugerida = aplicarRegrasECategorias(t.descricaoLimpa, t.categoriaSugerida);
             novosItensParaRevisao.push({
               tempId: `csv_${i}_${idx}_${t.hashDedup}`,
               data: t.data,
@@ -172,16 +266,27 @@ export const ImportPage: React.FC = () => {
               categoriaId: catSugerida,
               hashDedup: t.hashDedup,
               origemArquivo: arquivo.name,
-              banco: res.bancoDetectado || 'Banco CSV',
+              banco: 'Arquivo CSV',
               tipoConta: nomeLower.includes('cartao') || nomeLower.includes('card') ? 'cartao' : 'conta',
               ignorado: t.ignorado ?? false,
               motivoIgnorado: t.motivoIgnorado,
               criarRegra: false,
             });
           });
-        } else if (nomeLower.endsWith('.pdf')) {
+        }
+        // 4. Arquivos PDF
+        else if (nomeLower.endsWith('.pdf')) {
           const buffer = await arquivo.arrayBuffer();
           const res = await parsePDF(buffer, arquivo.name);
+
+          if (res.protegidoPorSenha) {
+            // Abre modal para o usuário digitar a senha
+            setArquivoPendenteSenha({ arquivo, buffer });
+            setSenhaInput('');
+            setErroSenha(null);
+            setModalSenhaAberta(true);
+            continue;
+          }
 
           if (res.isEscaneado) {
             setErroMensagem(res.mensagemAviso || 'Este PDF não possui camada de texto legível.');
@@ -192,7 +297,7 @@ export const ImportPage: React.FC = () => {
           totalDuplicadasDetectadas += duplicados.length;
 
           unicos.forEach((t, idx) => {
-            const catSugerida = aplicarRegras(t.descricaoLimpa, categorias);
+            const catSugerida = aplicarRegrasECategorias(t.descricaoLimpa);
             novosItensParaRevisao.push({
               tempId: `pdf_${i}_${idx}_${t.hashDedup}`,
               data: t.data,
@@ -211,7 +316,7 @@ export const ImportPage: React.FC = () => {
             });
           });
         } else {
-          setErroMensagem(`O arquivo "${arquivo.name}" não é OFX, CSV nem PDF suportado.`);
+          setErroMensagem(`O arquivo "${arquivo.name}" não é um formato suportado (aceitamos OFX, CSV, Excel .xlsx/.xls e PDF).`);
         }
       }
 
@@ -219,7 +324,64 @@ export const ImportPage: React.FC = () => {
       setTotalDuplicados(totalDuplicadasDetectadas);
     } catch (e: any) {
       console.error(e);
-      setErroMensagem(`Erro ao ler arquivos: ${e.message || 'formato inválido'}`);
+      setErroMensagem(`Erro ao processar arquivos: ${e.message || 'formato inválido'}`);
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  /**
+   * Desbloqueia PDF com a senha fornecida pelo usuário
+   */
+  const handleDesbloquearPDF = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!arquivoPendenteSenha) return;
+
+    setCarregando(true);
+    setErroSenha(null);
+
+    try {
+      const res = await parsePDF(
+        arquivoPendenteSenha.buffer,
+        arquivoPendenteSenha.arquivo.name,
+        senhaInput
+      );
+
+      if (res.protegidoPorSenha) {
+        setErroSenha('Senha incorreta para abrir este PDF. Tente novamente.');
+        setCarregando(false);
+        return;
+      }
+
+      const todasTransacoes = await db.transactions.toArray();
+      const hashesExistentes = new Set(todasTransacoes.map((t) => t.hashDedup));
+      const { unicos, duplicados } = filtrarDuplicatas(res.transacoes, hashesExistentes);
+      setTotalDuplicados((prev) => prev + duplicados.length);
+
+      const novosItens: ItemRevisao[] = unicos.map((t, idx) => ({
+        tempId: `pdf_pwd_${Date.now()}_${idx}_${t.hashDedup}`,
+        data: t.data,
+        descricao: t.descricao,
+        descricaoLimpa: t.descricaoLimpa,
+        valor: t.valor,
+        tipo: t.tipo,
+        categoriaId: aplicarRegrasECategorias(t.descricaoLimpa),
+        hashDedup: t.hashDedup,
+        origemArquivo: arquivoPendenteSenha.arquivo.name,
+        banco: res.bancoDetectado || 'Banco PDF',
+        tipoConta: arquivoPendenteSenha.arquivo.name.toLowerCase().includes('fatura') ? 'cartao' : 'conta',
+        ignorado: t.ignorado ?? false,
+        motivoIgnorado: t.motivoIgnorado,
+        criarRegra: false,
+      }));
+
+      setItensRevisao((prev) => [...prev, ...novosItens]);
+      setModalSenhaAberta(false);
+      setArquivoPendenteSenha(null);
+      setSenhaInput('');
+      setSucessoMensagem(`PDF desbloqueado com sucesso! ${novosItens.length} transações prontas para revisão.`);
+    } catch (err: any) {
+      setErroSenha(`Erro ao processar PDF: ${err.message}`);
     } finally {
       setCarregando(false);
     }
@@ -269,7 +431,6 @@ export const ImportPage: React.FC = () => {
     setCarregando(true);
 
     try {
-      // 1. Garante que as contas existam no banco
       const bancosNoLote = Array.from(new Set(itensRevisao.map((i) => i.banco)));
       const mapaContas = new Map<string, number>();
 
@@ -288,7 +449,6 @@ export const ImportPage: React.FC = () => {
         }
       }
 
-      // 2. Salva regras locais marcadas pelo usuário
       for (const item of itensRevisao) {
         if (item.criarRegra && item.categoriaId && item.descricaoLimpa) {
           const termoPadrao = item.descricaoLimpa.split(' ')[0] || item.descricaoLimpa;
@@ -299,7 +459,6 @@ export const ImportPage: React.FC = () => {
         }
       }
 
-      // 3. Salva transações no IndexedDB
       const transacoesParaSalvar: Transaction[] = itensRevisao.map((item) => ({
         accountId: mapaContas.get(item.banco) || 1,
         data: item.data,
@@ -344,15 +503,15 @@ export const ImportPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6 max-w-5xl mx-auto pb-12">
       {/* Cabeçalho */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-content-main-light dark:text-content-main-dark">
-            Importar Extratos
+            Importar Extratos & Planilhas
           </h1>
           <p className="text-sm text-content-secondary-light dark:text-content-secondary-dark mt-1">
-            Envie arquivos <strong>OFX</strong> ou <strong>CSV</strong> de bancos brasileiros. Privacidade 100% no seu navegador.
+            Envie arquivos <strong>Excel (.xlsx)</strong>, <strong>CSV</strong>, <strong>OFX</strong> ou <strong>PDF</strong> de faturas e bancos. Privacidade 100% no seu dispositivo.
           </p>
         </div>
 
@@ -361,29 +520,29 @@ export const ImportPage: React.FC = () => {
           onClick={carregarExemplo}
           type="button"
           disabled={carregando}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent/10 hover:bg-accent/20 text-accent dark:bg-accent/20 dark:hover:bg-accent/30 text-xs font-semibold transition-all self-start sm:self-auto border border-accent/20"
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-accent/10 hover:bg-accent/20 text-accent text-xs font-semibold transition-all self-start sm:self-auto border border-accent/20"
         >
           <Sparkles className="w-4 h-4" />
-          Experimentar com dados de exemplo
+          Carregar dados de exemplo
         </button>
       </div>
 
       {/* Alertas de Erro ou Sucesso */}
       {erroMensagem && (
-        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-expense text-sm flex items-center gap-3">
+        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-expense text-sm flex items-center gap-3 animate-in fade-in duration-150">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <span>{erroMensagem}</span>
         </div>
       )}
 
       {sucessoMensagem && (
-        <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-income text-sm flex items-center gap-3">
+        <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-income text-sm flex items-center gap-3 animate-in fade-in duration-150">
           <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
           <span>{sucessoMensagem}</span>
         </div>
       )}
 
-      {/* Zona de Drop / Upload (quando não há itens na revisão) */}
+      {/* Zona de Drop / Upload */}
       {itensRevisao.length === 0 && (
         <div
           onDragOver={handleDragOver}
@@ -395,85 +554,88 @@ export const ImportPage: React.FC = () => {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".ofx,.csv,.pdf"
+            accept=".ofx,.csv,.pdf,.xlsx,.xls"
             onChange={(e) => processarArquivos(e.target.files)}
             className="hidden"
           />
 
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 group-hover:bg-primary/20 text-primary flex items-center justify-center mb-4 transition-all group-hover:scale-105">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary mb-4 group-hover:scale-110 transition-transform">
             <UploadCloud className="w-8 h-8" />
           </div>
 
-          <h3 className="text-base font-bold text-content-main-light dark:text-content-main-dark mb-1">
-            Arraste e solte seus extratos bancários aqui
+          <h3 className="text-base font-bold text-content-main-light dark:text-content-main-dark">
+            Arraste seus extratos ou planilhas para cá
           </h3>
-          <p className="text-xs text-content-secondary-light dark:text-content-secondary-dark mb-5 max-w-sm">
-            Selecione um ou vários arquivos de uma vez. Reconhece <strong>OFX</strong>, <strong>CSV</strong> e <strong>PDF</strong> do Nubank, Inter, Itaú, Bradesco, Santander, BB, C6 e Mercado Pago.
+          <p className="text-xs text-content-secondary-light dark:text-content-secondary-dark mt-1 max-w-md">
+            Compatível com <strong>Excel (.xlsx, .xls)</strong>, <strong>CSV</strong>, <strong>OFX</strong> e faturas em <strong>PDF</strong> de bancos brasileiros (Nubank, Inter, Itaú, C6, Bradesco, Santander).
           </p>
 
-          <span className="px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-semibold shadow-sm transition-all">
-            Escolher arquivos no meu dispositivo
-          </span>
+          <button
+            type="button"
+            className="mt-5 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all pointer-events-none"
+          >
+            Selecionar Arquivos no Aparelho
+          </button>
         </div>
       )}
 
-      {/* Tela de Revisão do Lote Importado */}
+      {/* Tabela de Revisão e Confirmação */}
       {itensRevisao.length > 0 && (
         <div className="space-y-4">
-          {/* Card Resumo da Importação */}
-          <div className="p-4 rounded-2xl bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-6 text-xs">
-              <div>
-                <span className="text-content-secondary-light dark:text-content-secondary-dark block">Novas transações:</span>
-                <span className="text-base font-bold text-primary">{itensRevisao.length}</span>
-              </div>
-              {totalDuplicados > 0 && (
-                <div>
-                  <span className="text-content-secondary-light dark:text-content-secondary-dark block">Duplicatas removidas:</span>
-                  <span className="text-base font-bold text-warning">{totalDuplicados}</span>
-                </div>
-              )}
-              <div>
-                <span className="text-content-secondary-light dark:text-content-secondary-dark block">Faturas/Transf. identificadas:</span>
-                <span className="text-base font-bold text-content-main-light dark:text-content-main-dark">
-                  {itensRevisao.filter((i) => i.ignorado).length}
-                </span>
-              </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark">
+            <div>
+              <h2 className="text-base font-bold text-content-main-light dark:text-content-main-dark flex items-center gap-2">
+                <FileCheck className="w-5 h-5 text-primary" />
+                <span>Revisão de Lançamentos ({itensRevisao.length})</span>
+              </h2>
+              <p className="text-xs text-content-secondary-light">
+                Verifique as categorias antes de confirmar. Nenhuma transação duplica lançamentos já importados.
+              </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-end sm:self-auto">
               <button
-                onClick={() => setItensRevisao([])}
                 type="button"
-                className="px-3.5 py-2 rounded-xl border border-border-light dark:border-border-dark text-xs font-semibold text-content-secondary-light dark:text-content-secondary-dark hover:bg-black/5 dark:hover:bg-white/5"
+                onClick={() => setItensRevisao([])}
+                className="px-3 py-2 rounded-xl border border-border-light dark:border-border-dark text-xs font-semibold text-content-secondary-light hover:text-expense hover:border-expense/40 transition-all"
               >
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={salvarTransacoesConfirmadas}
                 disabled={carregando}
-                type="button"
-                className="px-5 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all"
+                className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 active:scale-95"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Salvar {itensRevisao.length} transações</span>
+                <span>Confirmar & Salvar</span>
+                <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Tabela de Revisão */}
-          <div className="rounded-2xl border border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark overflow-hidden shadow-sm">
-            <div className="overflow-x-auto max-h-[500px]">
+          {/* Banner de Duplicatas descartadas */}
+          {totalDuplicados > 0 && (
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+              <CopyX className="w-4 h-4 flex-shrink-0" />
+              <span>
+                <strong>{totalDuplicados} lançamentos duplicados</strong> foram descartados automaticamente para evitar repetição.
+              </span>
+            </div>
+          )}
+
+          {/* Lista de Itens para Revisar */}
+          <div className="border border-border-light dark:border-border-dark rounded-2xl bg-surface-light dark:bg-surface-dark overflow-hidden shadow-sm">
+            <div className="overflow-x-auto max-h-[60vh]">
               <table className="w-full text-left text-xs">
-                <thead className="bg-background-light dark:bg-background-dark text-content-secondary-light dark:text-content-secondary-dark sticky top-0 border-b border-border-light dark:border-border-dark z-10 font-semibold uppercase tracking-wider text-[10px]">
+                <thead className="bg-background-light dark:bg-background-dark text-content-secondary-light font-semibold uppercase text-[10px] tracking-wider sticky top-0 z-10 border-b border-border-light dark:border-border-dark">
                   <tr>
                     <th className="py-3 px-4">Data</th>
                     <th className="py-3 px-4">Descrição</th>
+                    <th className="py-3 px-4">Origem / Aba</th>
                     <th className="py-3 px-4">Valor</th>
                     <th className="py-3 px-4">Categoria</th>
-                    <th className="py-3 px-4 text-center">Ignorar duplo gasto?</th>
-                    <th className="py-3 px-4 text-center">Criar Regra</th>
-                    <th className="py-3 px-4 text-center">Ações</th>
+                    <th className="py-3 px-4 text-center">Status</th>
+                    <th className="py-3 px-4 text-right">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-light dark:divide-border-dark">
@@ -481,46 +643,35 @@ export const ImportPage: React.FC = () => {
                     <tr
                       key={item.tempId}
                       className={`hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${
-                        item.ignorado ? 'opacity-60 bg-black/[0.01]' : ''
+                        item.ignorado ? 'opacity-50 line-through bg-black/[0.01]' : ''
                       }`}
                     >
-                      {/* Data */}
-                      <td className="py-3 px-4 font-medium whitespace-nowrap">
+                      <td className="py-3 px-4 whitespace-nowrap font-mono">
                         {formatDate(item.data)}
                       </td>
-
-                      {/* Descrição e Banco */}
-                      <td className="py-3 px-4 max-w-xs">
-                        <div className="font-semibold text-content-main-light dark:text-content-main-dark truncate">
+                      <td className="py-3 px-4 max-w-xs font-medium text-content-main-light dark:text-content-main-dark">
+                        <div className="truncate" title={item.descricao}>
                           {item.descricao}
                         </div>
-                        <div className="text-[10px] text-content-secondary-light dark:text-content-secondary-dark flex items-center gap-1 mt-0.5">
-                          <span>{item.banco}</span>
-                          <span>•</span>
-                          <span className="truncate">{item.origemArquivo}</span>
-                          {item.motivoIgnorado && (
-                            <span className="text-warning font-medium">({item.motivoIgnorado})</span>
-                          )}
-                        </div>
                       </td>
-
-                      {/* Valor */}
-                      <td className="py-3 px-4 whitespace-nowrap font-bold tabular-nums">
-                        <span
-                          className={item.tipo === 'entrada' ? 'text-income' : 'text-expense'}
-                        >
-                          {item.tipo === 'entrada' ? '+' : '-'} {formatCurrency(item.valor)}
-                        </span>
+                      <td className="py-3 px-4 text-content-secondary-light whitespace-nowrap max-w-[140px] truncate" title={item.origemArquivo}>
+                        {item.origemArquivo}
                       </td>
-
-                      {/* Categoria */}
-                      <td className="py-3 px-4">
+                      <td
+                        className={`py-3 px-4 whitespace-nowrap font-mono font-bold tabular-nums ${
+                          item.tipo === 'entrada' ? 'text-income' : 'text-content-main-light dark:text-content-main-dark'
+                        }`}
+                      >
+                        {item.tipo === 'entrada' ? '+' : '-'} {formatCurrency(item.valor)}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
                         <select
                           value={item.categoriaId || ''}
                           onChange={(e) => alterarCategoriaItem(item.tempId, Number(e.target.value))}
-                          className="px-2.5 py-1.5 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark text-xs text-content-main-light dark:text-content-main-dark outline-none cursor-pointer"
+                          disabled={item.ignorado}
+                          className="px-2.5 py-1 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark text-content-main-light dark:text-content-main-dark text-xs outline-none focus:ring-1 focus:ring-primary"
                         >
-                          <option value="">Selecione...</option>
+                          <option value="">Não categorizado</option>
                           {categorias.map((cat) => (
                             <option key={cat.id} value={cat.id}>
                               {cat.nome}
@@ -528,38 +679,27 @@ export const ImportPage: React.FC = () => {
                           ))}
                         </select>
                       </td>
-
-                      {/* Ignorar duplo gasto */}
-                      <td className="py-3 px-4 text-center">
-                        <input
-                          type="checkbox"
-                          checked={item.ignorado}
-                          onChange={() => alternarIgnoradoItem(item.tempId)}
-                          className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer accent-primary"
-                          title="Marque para não contar esta transação no cálculo de gastos (ex: pagamento de fatura já detalhada)"
-                        />
-                      </td>
-
-                      {/* Criar Regra */}
-                      <td className="py-3 px-4 text-center">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(item.criarRegra)}
-                          onChange={() => alternarCriarRegra(item.tempId)}
-                          disabled={!item.categoriaId}
-                          className="w-4 h-4 rounded text-accent focus:ring-accent cursor-pointer accent-accent disabled:opacity-30"
-                          title="Sempre categorizar lançamentos parecidos com esta categoria"
-                        />
-                      </td>
-
-                      {/* Ações */}
-                      <td className="py-3 px-4 text-center">
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
                         <button
-                          onClick={() => removerItem(item.tempId)}
-                          className="p-1 rounded-lg text-content-secondary-light hover:text-expense hover:bg-red-50 dark:hover:bg-red-950/30"
-                          title="Remover este item do lote"
+                          type="button"
+                          onClick={() => alternarIgnoradoItem(item.tempId)}
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${
+                            item.ignorado
+                              ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300'
+                          }`}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {item.ignorado ? 'Ignorado' : 'Incluir'}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => removerItem(item.tempId)}
+                          className="p-1 rounded-lg text-content-secondary-light hover:text-expense hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+                          title="Remover este lançamento"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     </tr>
@@ -567,6 +707,75 @@ export const ImportPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Desbloquear PDF Protegido por Senha */}
+      {modalSenhaAberta && arquivoPendenteSenha && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-content-main-light dark:text-content-main-dark">
+                  PDF Protegido por Senha
+                </h3>
+                <p className="text-xs text-content-secondary-light line-clamp-1">
+                  {arquivoPendenteSenha.arquivo.name}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-content-secondary-light leading-relaxed">
+              Este extrato/fatura é protegido por senha pelo seu banco. Para abrir no navegador, digite a senha (geralmente são os <strong>primeiros dígitos do seu CPF</strong> ou sua <strong>data de nascimento</strong>).
+            </p>
+
+            {erroSenha && (
+              <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-expense text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{erroSenha}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleDesbloquearPDF} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-content-secondary-light mb-1">
+                  Senha do PDF
+                </label>
+                <input
+                  type="password"
+                  value={senhaInput}
+                  onChange={(e) => setSenhaInput(e.target.value)}
+                  placeholder="Digite a senha do banco..."
+                  autoFocus
+                  required
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark text-content-main-light dark:text-content-main-dark text-xs sm:text-sm outline-none focus:ring-2 focus:ring-primary shadow-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalSenhaAberta(false);
+                    setArquivoPendenteSenha(null);
+                  }}
+                  className="px-3.5 py-2 rounded-xl border border-border-light dark:border-border-dark text-xs font-semibold text-content-secondary-light hover:bg-black/5"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!senhaInput.trim() || carregando}
+                  className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all"
+                >
+                  {carregando ? 'Desbloqueando...' : 'Desbloquear Extrato'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
