@@ -24,10 +24,11 @@ import { AccumulatedBalanceLineChart } from '../components/dashboard/Accumulated
 import { FixedVsVariableCard } from '../components/dashboard/FixedVsVariableCard';
 import { InsightsBanner } from '../components/dashboard/InsightsBanner';
 import { SubscriptionsAndTopExpenses } from '../components/dashboard/SubscriptionsAndTopExpenses';
+import { QuickDashboard } from '../components/dashboard/QuickDashboard';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const { mesSelecionado } = useAppStore();
+  const { mesSelecionado, modoExibicao } = useAppStore();
 
   const transacoes = useLiveQuery(() => db.transactions.toArray()) || [];
   const categorias = useLiveQuery(() => db.categories.toArray()) || [];
@@ -42,21 +43,32 @@ export const DashboardPage: React.FC = () => {
     await carregarDadosExemplo();
   };
 
+  // Se o usuário selecionou o Modo Visão Rápida, renderiza o painel simplificado acolhedor
+  if (modoExibicao === 'rapida') {
+    return (
+      <QuickDashboard
+        statsRaioX={stats}
+        temTransacoesReais={temTransacoes}
+      />
+    );
+  }
+
+  // Modo Raio-X (Completo, com gráficos detalhados e conciliação)
   return (
-    <div className="space-y-6">
-      {/* Topo do Dashboard */}
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Topo do Dashboard Raio-X */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-content-main-light dark:text-content-main-dark">
-              Painel Geral
+              Painel Raio-X
             </h1>
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary capitalize">
               {mesSelecionado === 'todos' ? 'Visão Consolidada' : formatMonthYear(stats.mesReferencia)}
             </span>
           </div>
           <p className="text-xs sm:text-sm text-content-secondary-light dark:text-content-secondary-dark mt-1">
-            Veja exatamente para onde seu dinheiro foi e quanto sobrou no período.
+            Auditoria detalhada com extratos bancários, faturas e métricas precisas.
           </p>
         </div>
 
@@ -82,12 +94,12 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Se não houver dados, exibe EmptyState acolhedor */}
+      {/* Se não houver dados no Raio-X, exibe EmptyState com atalho para a Visão Rápida */}
       {!temTransacoes ? (
         <EmptyState
           icone={UploadCloud}
-          titulo="Ainda não tem extratos importados"
-          descricao="Envie o extrato em OFX ou CSV do seu banco ou cartão. O Sobra calcula sozinho o quanto entrou, quanto saiu e quanto sobrou."
+          titulo="Ainda não há extratos importados para o Raio-X"
+          descricao="Envie o extrato em OFX, CSV, Excel (.xlsx) ou PDF do seu banco. Ou se preferir, use o Modo Visão Rápida para estimar suas sobras agora mesmo sem nenhum arquivo."
           acaoTexto="Importar meu primeiro extrato"
           onAcao={() => navigate('/importar')}
         />
@@ -126,7 +138,6 @@ export const DashboardPage: React.FC = () => {
 
           {/* Seção 1: Rosca de Categorias & Gastos Fixos x Variáveis */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Gráfico Donut de Categorias (ocupa 2 colunas no desktop) */}
             <div className="lg:col-span-2 p-5 rounded-2xl bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -139,14 +150,9 @@ export const DashboardPage: React.FC = () => {
                   {stats.distribuicaoCategorias.length} categorias com gastos
                 </span>
               </div>
-
-              <CategoryDonutChart
-                categorias={stats.distribuicaoCategorias}
-                totalGasto={stats.saiu}
-              />
+              <CategoryDonutChart categorias={stats.distribuicaoCategorias} totalGasto={stats.saiu} />
             </div>
 
-            {/* Card Gastos Fixos vs Variáveis (ocupa 1 coluna) */}
             <div className="lg:col-span-1">
               <FixedVsVariableCard
                 gastosFixos={stats.gastosFixos}
@@ -157,40 +163,30 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Seção 2: Gráficos de Evolução (Barras e Linha) */}
+          {/* Seção 2: Evolução Mensal & Saldo Acumulado */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Barras: Entradas x Saídas */}
-            <div className="p-5 rounded-2xl bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-primary" />
-                  <h3 className="text-sm font-bold text-content-main-light dark:text-content-main-dark">
-                    Evolução Mensal (Entrou vs Saiu)
-                  </h3>
-                </div>
-                <span className="text-xs text-content-secondary-light">Últimos meses</span>
+            <div className="p-5 rounded-2xl bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark shadow-sm space-y-4">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-bold text-content-main-light dark:text-content-main-dark">
+                  Evolução Mensal (Entrou vs Saiu vs Sobrou)
+                </h3>
               </div>
-
               <MonthlyEvolutionBarChart historico={stats.historicoMensal} />
             </div>
 
-            {/* Linha/Área: Sobra Acumulada */}
-            <div className="p-5 rounded-2xl bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <LineChart className="w-4 h-4 text-primary" />
-                  <h3 className="text-sm font-bold text-content-main-light dark:text-content-main-dark">
-                    Sobra Acumulada no Tempo
-                  </h3>
-                </div>
-                <span className="text-xs text-content-secondary-light">Tendência de reserva</span>
+            <div className="p-5 rounded-2xl bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark shadow-sm space-y-4">
+              <div className="flex items-center gap-2">
+                <LineChart className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-bold text-content-main-light dark:text-content-main-dark">
+                  Saldo Acumulado no Tempo
+                </h3>
               </div>
-
               <AccumulatedBalanceLineChart historico={stats.historicoMensal} />
             </div>
           </div>
 
-          {/* Seção 3: Maiores Gastos e Assinaturas */}
+          {/* Seção 3: Assinaturas Recorrentes & Maiores Gastos */}
           <SubscriptionsAndTopExpenses
             maioresGastos={stats.maioresGastos}
             assinaturasAtivas={stats.assinaturasAtivas}

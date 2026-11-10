@@ -30,12 +30,34 @@ export async function toolSimularCompra(args: {
   const savings = await db.savings.toArray();
 
   const stats = calcularEstatisticasPainel(transacoes, categorias, 'todos');
-  const reservaAtual = savings.reduce((acc, s) => acc + s.valor, 0);
+  let reservaAtual = savings.reduce((acc, s) => acc + s.valor, 0);
+
+  // Fallback inteligente: se não houver extratos, busca estimativas rápidas do Modo Visão Rápida
+  let sobraMedia = stats.sobrou;
+  let isEstimativa = false;
+  if (sobraMedia === 0 && transacoes.length === 0 && typeof localStorage !== 'undefined') {
+    try {
+      const salvo = localStorage.getItem('sobra_estimativas_rapidas');
+      if (salvo) {
+        const est = JSON.parse(salvo);
+        sobraMedia = Math.max(0, (est.rendaMensal || 500000) - (est.despesasFixas || 320000));
+        if (reservaAtual === 0 && est.reservaAtual) {
+          reservaAtual = est.reservaAtual;
+        }
+        isEstimativa = true;
+      }
+    } catch (e) {
+      console.warn('Erro ao ler estimativas:', e);
+    }
+  }
+
+  if (sobraMedia === 0) {
+    sobraMedia = 150000;
+  }
 
   const valorCentavos = reaisToCentavos(args.valor);
   const parcelas = Number(args.parcelas) || 1;
   const juros = Number(args.juros) || 0;
-  const sobraMedia = stats.sobrou !== 0 ? stats.sobrou : 150000;
 
   const sim = simularCompra({
     valorCentavos,
@@ -82,14 +104,45 @@ export async function toolConsultarReservaESaque(args: {
   const savings = await db.savings.toArray();
   const settings = await db.settings.get('global');
 
-  const stats = calcularEstatisticasPainel(transacoes, categorias, 'todos');
-  const metricas = calcularMetricasReserva(
+  let stats = calcularEstatisticasPainel(transacoes, categorias, 'todos');
+  let metricas = calcularMetricasReserva(
     transacoes,
     categorias,
     savings,
     stats.sobrou,
     settings?.metaReservaMeses || 6
   );
+
+  let isEstimativa = false;
+  if (transacoes.length === 0 && typeof localStorage !== 'undefined') {
+    try {
+      const salvo = localStorage.getItem('sobra_estimativas_rapidas');
+      if (salvo) {
+        const est = JSON.parse(salvo);
+        const renda = est.rendaMensal || 500000;
+        const fixos = est.despesasFixas || 320000;
+        const reserva = metricas.reservaAtualCentavos > 0 ? metricas.reservaAtualCentavos : (est.reservaAtual || 0);
+        const sobra = Math.max(0, renda - fixos);
+        const metaMeses = settings?.metaReservaMeses || 6;
+        const metaReserva = fixos * metaMeses;
+        const mesesCobertos = fixos > 0 ? Number((reserva / fixos).toFixed(1)) : 0;
+        const percentualMeta = metaReserva > 0 ? Math.min(100, Math.round((reserva / metaReserva) * 100)) : 0;
+
+        metricas = {
+          reservaAtualCentavos: reserva,
+          despesaEssencialMensalCentavos: fixos,
+          metaMesesConfigurada: metaMeses,
+          metaReservaCentavos: metaReserva,
+          mesesCobertosAtual: mesesCobertos,
+          percentualMetaAtingido: percentualMeta,
+          sobraMensalMediaCentavos: sobra,
+        };
+        isEstimativa = true;
+      }
+    } catch (e) {
+      console.warn('Erro ao ler estimativas:', e);
+    }
+  }
 
   const valorSaqueCentavos = args.valor_saque ? reaisToCentavos(args.valor_saque) : 0;
   const simSaque = simularSaqueReserva(valorSaqueCentavos, metricas);
@@ -105,8 +158,11 @@ export async function toolConsultarReservaESaque(args: {
       tempoParaReporMeses: simSaque.tempoParaReporMeses,
       nivelImpacto: simSaque.nivelImpacto,
       mensagem: simSaque.mensagem,
+      isEstimativa,
     },
-    comoCalculei: `Considerando sua reserva de ${formatCurrency(metricas.reservaAtualCentavos)} e um custo de vida essencial médio de ${formatCurrency(metricas.despesaEssencialMensalCentavos)}/mês. Sobra mensal de reposição: ${formatCurrency(stats.sobrou)}.`,
+    comoCalculei: isEstimativa
+      ? `Estimativa baseada no seu perfil rápido: reserva de ${formatCurrency(metricas.reservaAtualCentavos)} e custo mensal essencial de ${formatCurrency(metricas.despesaEssencialMensalCentavos)}.`
+      : `Considerando sua reserva de ${formatCurrency(metricas.reservaAtualCentavos)} e um custo de vida essencial médio de ${formatCurrency(metricas.despesaEssencialMensalCentavos)}/mês. Sobra mensal de reposição: ${formatCurrency(stats.sobrou)}.`,
   };
 }
 
@@ -225,6 +281,35 @@ export async function toolConsultarSobraGeral(): Promise<ExecucaoFerramentaResul
   const transacoes = await db.transactions.toArray();
   const categorias = await db.categories.toArray();
 
+  if (transacoes.length === 0 && typeof localStorage !== 'undefined') {
+    try {
+      const salvo = localStorage.getItem('sobra_estimativas_rapidas');
+      if (salvo) {
+        const est = JSON.parse(salvo);
+        const renda = est.rendaMensal || 500000;
+        const fixos = est.despesasFixas || 320000;
+        const sobra = Math.max(0, renda - fixos);
+        const pctFixos = renda > 0 ? Math.round((fixos / renda) * 100) : 0;
+        return {
+          nome: 'consultar_sobra_geral',
+          argumentos: {},
+          resultado: {
+            entrouMensal: formatCurrency(renda),
+            saiuMensal: formatCurrency(fixos),
+            sobrouMensal: formatCurrency(sobra),
+            gastosFixos: formatCurrency(fixos),
+            gastosVariaveis: formatCurrency(0),
+            percentualFixos: `${pctFixos}%`,
+            isEstimativa: true,
+          },
+          comoCalculei: `Estimativa rápida configurada no perfil: Entradas aproximadas de ${formatCurrency(renda)} e custos de ${formatCurrency(fixos)}.`,
+        };
+      }
+    } catch (e) {
+      console.warn('Erro ao ler estimativas:', e);
+    }
+  }
+
   const stats = calcularEstatisticasPainel(transacoes, categorias, 'todos');
 
   return {
@@ -237,6 +322,7 @@ export async function toolConsultarSobraGeral(): Promise<ExecucaoFerramentaResul
       gastosFixos: formatCurrency(stats.gastosFixos),
       gastosVariaveis: formatCurrency(stats.gastosVariaveis),
       percentualFixos: `${stats.percentualFixos}%`,
+      isEstimativa: false,
     },
     comoCalculei: `Média recente consolidada das suas entradas (${formatCurrency(stats.entrou)}) e saídas (${formatCurrency(stats.saiu)}).`,
   };

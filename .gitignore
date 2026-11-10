@@ -32,3 +32,9 @@ pnpm-debug.log*
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Uploads e dados temporários de teste
+upload/
+*.xlsx
+*.csv
+*.png

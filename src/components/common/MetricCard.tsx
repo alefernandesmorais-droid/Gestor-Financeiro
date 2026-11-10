@@ -1,6 +1,7 @@
 import React from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { formatCurrency } from '../../lib/formatters';
+import { useAppStore } from '../../stores/appStore';
 
 interface MetricCardProps {
   titulo: string;
@@ -22,6 +23,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   icone: Icon,
   variante = 'default',
 }) => {
+  const { ocultarValores } = useAppStore();
   const cores = {
     default: {
       borda: 'border-border-light dark:border-border-dark',
@@ -60,7 +62,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
 
       <div className="my-1">
         <span className={`text-2xl sm:text-3xl font-bold tabular-nums tracking-tight ${cores.textoValor}`}>
-          {formatCurrency(valorCentavos)}
+          {ocultarValores ? 'R$ ••••••' : formatCurrency(valorCentavos)}
         </span>
       </div>
 
